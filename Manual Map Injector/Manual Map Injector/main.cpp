@@ -1,6 +1,6 @@
 #include "injector.h"
 
-const char dllFilePath[] = "C:\\Users\\Jake\\Desktop\\TestDlls\\test.dll";
+const char dllFilePath[] = "test.dll";
 const char targetProc[] = "Manual Map Injector.exe";
 
 int main() {
