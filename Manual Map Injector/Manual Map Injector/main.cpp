@@ -7,7 +7,7 @@ int main() {
 	PROCESSENTRY32 PE32{ 0 };
 	PE32.dwSize = sizeof(PE32);
 
-	HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+	HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0); //grab snapshot of all procs
 
 	if (hSnap == INVALID_HANDLE_VALUE) {
 		DWORD err = GetLastError();
@@ -17,20 +17,20 @@ int main() {
 	}
 
 	DWORD PID = 0;
-	BOOL bRet = Process32First(hSnap, &PE32);
+	BOOL procFound = Process32First(hSnap, &PE32);
 
-	while (bRet) {
+	while (procFound) { //finding target proc from snapshot
 		if (!strcmp(targetProc, PE32.szExeFile)) {
 			PID = PE32.th32ProcessID;
 			break;
 		}
 
-		bRet = Process32Next(hSnap, &PE32);
+		procFound = Process32Next(hSnap, &PE32);
 	}
 
-	CloseHandle(hSnap);
+	CloseHandle(hSnap); 
 
-	HANDLE hProc = OpenProcess(PROCESS_ALL_ACCESS, FALSE, PID);
+	HANDLE hProc = OpenProcess(PROCESS_ALL_ACCESS, FALSE, PID); 
 	if (!hProc) {
 		DWORD err = GetLastError();
 		printf("OpenProcess failed: 0x%X\n", err);

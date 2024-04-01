@@ -3,11 +3,11 @@
 void __stdcall shellcode(MANUAL_MAPPING_DATA* pData);
 
 bool ManualMap(HANDLE hProc, const char* dllFilePath) {
-	BYTE* pSourceData = nullptr;
-	IMAGE_NT_HEADERS* pOldNtHeader = nullptr;
-	IMAGE_OPTIONAL_HEADER* pOldOptHeader = nullptr;
-	IMAGE_FILE_HEADER* pOldFileHeader = nullptr;
-	BYTE* pTargetBase = nullptr;
+	BYTE*					pSourceData		= nullptr;
+	IMAGE_NT_HEADERS*		pOldNtHeader	= nullptr;
+	IMAGE_OPTIONAL_HEADER*	pOldOptHeader	= nullptr;
+	IMAGE_FILE_HEADER*		pOldFileHeader	= nullptr;
+	BYTE*					pTargetBase		= nullptr;
 
 	if (!GetFileAttributesA(dllFilePath)) {
 		printf("File doesn't exist\n");
@@ -47,6 +47,7 @@ bool ManualMap(HANDLE hProc, const char* dllFilePath) {
 	File.read(reinterpret_cast<char*>(pSourceData), fileSize);
 	File.close();
 
+	//check file format
 	if (reinterpret_cast<IMAGE_DOS_HEADER*>(pSourceData)->e_magic != 0x5A4D) {
 		printf("Invalid file\n");
 		delete[] pSourceData;
@@ -72,6 +73,7 @@ bool ManualMap(HANDLE hProc, const char* dllFilePath) {
 	}
 #endif
 
+	//Allocate memory in the target process
 	pTargetBase = reinterpret_cast<BYTE*>(VirtualAllocEx(hProc, reinterpret_cast<void*>(pOldOptHeader->ImageBase), pOldOptHeader->SizeOfImage, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE));
 	if (!pTargetBase) {
 		pTargetBase = reinterpret_cast<BYTE*>(VirtualAllocEx(hProc, nullptr, pOldOptHeader->SizeOfImage, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE));
@@ -89,6 +91,7 @@ bool ManualMap(HANDLE hProc, const char* dllFilePath) {
 	auto* pSectionHeader = IMAGE_FIRST_SECTION(pOldNtHeader);
 	for (UINT i = 0; i != pOldFileHeader->NumberOfSections; i++, pSectionHeader++) {
 		if (pSectionHeader->SizeOfRawData) {
+			//writes raw data section to memory location in target process
 			if (!WriteProcessMemory(hProc, pTargetBase + pSectionHeader->VirtualAddress, pSourceData + pSectionHeader->PointerToRawData, pSectionHeader->SizeOfRawData, nullptr)) {
 				printf("Failed to map sections: 0x%X\n", GetLastError());
 				delete[] pSourceData;
@@ -99,10 +102,14 @@ bool ManualMap(HANDLE hProc, const char* dllFilePath) {
 	}
 
 	memcpy(pSourceData, &data, sizeof(data));
+
+	//writes pSourceData buffer in to memory of target proc
 	WriteProcessMemory(hProc, pTargetBase, pSourceData, 0x1000, nullptr);
 
+	//bye bye pSource
 	delete[] pSourceData;
 
+	//allocate some space in target proc's memory for some shellcode shenanigans
 	void* pShellcode = VirtualAllocEx(hProc, nullptr, 0x1000, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
 	if (!pShellcode) {
 		printf("Memory allocation failed: 0x%X\n", GetLastError());
@@ -110,8 +117,10 @@ bool ManualMap(HANDLE hProc, const char* dllFilePath) {
 		return false;
 	}
 
+	//writing shellcode in to target proc's memory
 	WriteProcessMemory(hProc, pShellcode, shellcode, 0x1000, nullptr);
 
+	//creating a thread to execute our freshly cooked shellcode
 	HANDLE hThread = CreateRemoteThread(hProc, nullptr, 0, reinterpret_cast<LPTHREAD_START_ROUTINE>(pShellcode), pTargetBase, 0, nullptr);
 	if (!hThread) {
 		printf("Thread creation failed: 0x % X\n", GetLastError());
@@ -122,22 +131,26 @@ bool ManualMap(HANDLE hProc, const char* dllFilePath) {
 
 	CloseHandle(hThread);
 
-	HINSTANCE hCheck = NULL;
-	while (!hCheck) {
+	//waits for the remote thread to finish execution
+	HINSTANCE hCheck = NULL; //this will hold the handle to the module after being loaded in to target proc
+	while (!hCheck) { //when hCheck not null, indicates the module has been loaded
 		MANUAL_MAPPING_DATA dataChecked{ 0 };
 		ReadProcessMemory(hProc, pTargetBase, &dataChecked, sizeof(dataChecked), nullptr);
-		hCheck = dataChecked.hMod;
+		hCheck = dataChecked.hMod; 
 		Sleep(10);
 	}
-
+	
+	//free up the space allocated for pShellcode cause we done here 
 	VirtualFreeEx(hProc, pShellcode, 0, MEM_RELEASE);
 
 	return true;
 }
 
+//macros for reloc types
 #define RELOC_FLAG32(RelInfo) ((RelInfo >> 0x0C) == IMAGE_REL_BASED_HIGHLOW)
 #define RELOC_FLAG64(RelInfo) ((RelInfo >> 0x0C) == IMAGE_REL_BASED_DIR64)
 
+//checks if 64 bit, if not then 32 bit
 #ifdef _WIN64
 #define RELOC_FLAG RELOC_FLAG64
 #else
@@ -147,15 +160,16 @@ bool ManualMap(HANDLE hProc, const char* dllFilePath) {
 void __stdcall shellcode(MANUAL_MAPPING_DATA* pData) {
 	if (!pData) { return; }
 
-	BYTE* pBase = reinterpret_cast<BYTE*>(pData);
-	auto* pOpt = &reinterpret_cast<IMAGE_NT_HEADERS*>(pBase + reinterpret_cast<IMAGE_DOS_HEADER*>(pData)->e_lfanew)->OptionalHeader;
+	BYTE* pBase		= reinterpret_cast<BYTE*>(pData);
+	auto* pOpt		= &reinterpret_cast<IMAGE_NT_HEADERS*>(pBase + reinterpret_cast<IMAGE_DOS_HEADER*>(pData)->e_lfanew)->OptionalHeader;
 
-	auto _LoadLibraryA = pData->pLoadLibraryA;
-	auto _GetProcAddress = pData->pGetProcAddress;
-	auto _DllMain = reinterpret_cast<f_DLL_ENTRYPOINT>(pBase + pOpt->AddressOfEntryPoint);
+	auto _LoadLibraryA		= pData->pLoadLibraryA;
+	auto _GetProcAddress	= pData->pGetProcAddress;
+	auto _DllMain			= reinterpret_cast<f_DLL_ENTRYPOINT>(pBase + pOpt->AddressOfEntryPoint);
 
+	//the difference between preferred base address of mod and the actual base address where mod was loaded
 	BYTE* locDelta = pBase - pOpt->ImageBase;
-	if (locDelta) {
+	if (locDelta) { //if 0, mod was loaded at its pref base addr somehow
 		if (!pOpt->DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC].Size) { return; }
 
 		auto* pRelocData = reinterpret_cast<IMAGE_BASE_RELOCATION*>(pBase + pOpt->DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC].VirtualAddress);
@@ -170,10 +184,10 @@ void __stdcall shellcode(MANUAL_MAPPING_DATA* pData) {
 			for (UINT i = 0; i != amtOfEntries; i++, pRelativeInfo++) {
 				if (RELOC_FLAG(*pRelativeInfo)) {
 					UINT_PTR* pPatch = reinterpret_cast<UINT_PTR*>(pBase + pRelocData->VirtualAddress + ((*pRelativeInfo) & 0xFFF));
-					*pPatch += reinterpret_cast<UINT_PTR>(locDelta);
+					*pPatch += reinterpret_cast<UINT_PTR>(locDelta); 
 				}
 			}
-			pRelocData = reinterpret_cast<IMAGE_BASE_RELOCATION*>(reinterpret_cast<BYTE*>(pRelocData) + pRelocData->SizeOfBlock);
+			pRelocData = reinterpret_cast<IMAGE_BASE_RELOCATION*>(reinterpret_cast<BYTE*>(pRelocData) + pRelocData->SizeOfBlock); //movin on
 		}
 	}
 
@@ -181,7 +195,7 @@ void __stdcall shellcode(MANUAL_MAPPING_DATA* pData) {
 		auto* pImportDescriptor = reinterpret_cast<IMAGE_IMPORT_DESCRIPTOR*>(pBase + pOpt->DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress);
 		while (pImportDescriptor->Name) {
 			char* currMod = reinterpret_cast<char*>(pBase + pImportDescriptor->Name);
-			HINSTANCE hDll = _LoadLibraryA(currMod);
+			HINSTANCE hDll = _LoadLibraryA(currMod); 
 
 			ULONG_PTR* pThunkRef = reinterpret_cast<ULONG_PTR*>(pBase + pImportDescriptor->OriginalFirstThunk);
 			ULONG_PTR* pFuncRef = reinterpret_cast<ULONG_PTR*>(pBase + pImportDescriptor->FirstThunk);
@@ -209,13 +223,13 @@ void __stdcall shellcode(MANUAL_MAPPING_DATA* pData) {
 		auto* pTLS = reinterpret_cast<IMAGE_TLS_DIRECTORY*>(pBase + pOpt->DataDirectory[IMAGE_DIRECTORY_ENTRY_TLS].VirtualAddress);
 		auto* pCallback = reinterpret_cast<PIMAGE_TLS_CALLBACK*>(pTLS->AddressOfCallBacks);
 
-		for (; pCallback && *pCallback; pCallback++) {
+		for (; pCallback && *pCallback; pCallback++) { //iterate thru all tls callbacks -> call each w params
 			(*pCallback)(pBase, DLL_PROCESS_ATTACH, nullptr);
 		}
 	}
 
 	_DllMain(pBase, DLL_PROCESS_ATTACH, nullptr);
 
-	pData->hMod = reinterpret_cast<HINSTANCE>(pBase);
+	pData->hMod = reinterpret_cast<HINSTANCE>(pBase); //setting hMod to address of the loaded module
 
 }
