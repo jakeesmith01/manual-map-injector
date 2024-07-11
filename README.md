@@ -9,4 +9,5 @@ Usage:
 
 Disclaimer:
 - This project was purely a learning opportunity for me. While I had success injecting dlls to games while evading the anticheat, I cannot gurantee that this will remain the same or will work at all for you. Each anticheat is different, and I was using a fairly lenient, non kernel anti cheat for testing.
+- If you're not using this to inject cheats or something of the same manner, then you will be okay! It works, it just may not sneak past all anticheats (:
 - To keep it simple: don't use this if you care about getting banned, and I'm not responsible if you do.
