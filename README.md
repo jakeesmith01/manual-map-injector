@@ -8,5 +8,5 @@ Usage:
 - You will need to run VS as an admin to execute the program.
 
 Disclaimer:
-- I don't know what I'm doing! I put this together with nothing but willpower and google, and there's a great chance it is not safe to use with modern anticheats.
+- This project was purely a learning opportunity for me. While I had success injecting dlls to games while evading the anticheat, I cannot gurantee that this will remain the same or will work at all for you. Each anticheat is different, and I was using a fairly lenient, non kernel anti cheat for testing.
 - To keep it simple: don't use this if you care about getting banned, and I'm not responsible if you do.
